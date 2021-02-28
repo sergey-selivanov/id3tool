@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+             <PatternLayout pattern="%5p [%t] (%F:%L) - %m%n" />
+        </Console>
+
+        <RollingFile name="Rolling"
+            fileName="${sys:java.io.tmpdir}/id3tool.log"
+            filePattern="$${sys:java.io.tmpdir}/id3tool.log.backup.%i">
+            <!--
+            filePattern="${sys:java.io.tmpdir} puts to relative dir, drops disk letter on windows
+            filePattern="$${sys:java.io.tmpdir} works ok
+             -->
+            <PatternLayout pattern="%d %5p [%t] (%F:%L) - %m%n" />
+
+            <Policies>
+                <SizeBasedTriggeringPolicy size="1 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="5"/>
+        </RollingFile>
+
+    </Appenders>
+
+    <Loggers>
+    <!-- TRACE, DEBUG, INFO, WARN, ERROR, ALL or OFF -->
+        <Root level="debug">
+            <AppenderRef ref="Console" />
+            <AppenderRef ref="Rolling" />
+        </Root>
+    </Loggers>
+</Configuration>

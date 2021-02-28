@@ -1,0 +1,275 @@
+plugins {
+    id 'org.javamodularity.moduleplugin' version '1.7.0'
+    id 'application'
+    id 'eclipse'
+
+    id 'org.beryx.jlink' version '2.23.3'
+
+    id 'com.github.spotbugs' version '4.6.2'
+    id 'checkstyle'
+    id 'pmd'
+
+//    id 'net.saliman.properties' version '1.5.1'
+    id 'com.github.ben-manes.versions' version '0.36.0'
+    id 'org.ajoberstar.reckon' version '0.13.0'
+    id 'org.ajoberstar.grgit' version '4.1.0'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+
+    implementation 'commons-cli:commons-cli:1.4'
+
+    implementation 'org.slf4j:slf4j-api:1.7.30'
+
+    runtimeOnly 'org.apache.logging.log4j:log4j-slf4j-impl:2.14.0'
+    runtimeOnly 'org.apache.logging.log4j:log4j-core:2.14.0'
+    implementation 'org.apache.logging.log4j:log4j-api:2.14.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.1'
+
+    spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.11.0'
+    spotbugsPlugins 'com.mebigfatguy.sb-contrib:sb-contrib:7.4.7'
+}
+
+// gradle run: > org.joor.ReflectException: java.lang.NoSuchFieldException: javaExecHandleBuilder
+modularity.disableEffectiveArgumentsAdjustment()
+
+application {
+    mainModule = 'org.svs.id3tool'
+    mainClass = 'org.svs.id3tool.Id3Tool'
+}
+
+import org.apache.tools.ant.filters.ReplaceTokens
+
+if(!project.hasProperty('installerType')){
+    project.ext.installerType = 'exe'
+}
+
+if(!project.hasProperty('reckon.scope')){
+    project.ext.'reckon.scope' = 'patch'    // override default 'minor'
+}
+
+reckon {
+    scopeFromProp()
+    stageFromProp('dev', 'final')
+}
+
+processResources {
+
+    exclude '**/options-template.properties'
+    exclude '**/options.properties', '**/options-sample.properties'
+    exclude '**/version.properties'
+    exclude '**/unused'
+}
+
+task adjustEnvResources(type: Copy) {
+
+    // jenkins build number
+    // ? run 'clean' in jenkins build otherwise when resources up-to-date, will not be updated
+    def val = System.getenv('BUILD_NUMBER')
+    def bn = (val == null ? 'undefined' : val)
+    //def bnn = (val == null ? '0' : val)
+
+    //val = System.getenv('BUILD_ID')
+    //def bid = (val == null ? 'undefined' : val)
+
+    val = System.getenv('USER');    // linux
+    if(val == null){
+        val = System.getenv('USERNAME');    // linux, windows
+    }
+
+    def builduser = (val == null ? 'undefined' : val)
+    def buildhost = InetAddress.localHost.hostName
+
+
+    from project.sourceSets.main.resources
+    include 'options-template.properties'
+    include 'version.properties'
+
+    into project.sourceSets.main.output.resourcesDir
+
+//    filter(ReplaceTokens, tokens: project.filterTokens)
+    filter(ReplaceTokens,
+        tokens:[
+//            'git.commit': repo.head().abbreviatedId,
+//            'git.date': repo.head().date.toString(),
+//            'git.branch': repo.branch.current.name,
+
+            'git.commit': grgit.head().abbreviatedId,
+            'git.date': grgit.head().date.toString(),
+            'git.branch': grgit.branch.current.name,
+
+            'build.date': new java.util.Date().toString(),
+            'build.host': builduser + '@' + buildhost,
+            'version': project.version.toString(),
+            'build.number': bn,
+//            'environment.name': environmentName
+            ])
+
+    rename 'options-template.properties', 'options.properties'
+}
+
+compileJava.dependsOn adjustEnvResources
+
+
+// http://andresalmiray.com/customize-jar-manifest-entries-with-maven-gradle/
+// https://stackoverflow.com/questions/22659463/add-classpath-in-manifest-using-gradle
+// TODO needed?
+jar {
+    manifest {
+        attributes(
+            'Main-Class'    : 'org.sergeys.cookbook.ui.CookBookLauncher',
+            'Class-Path'    : configurations.compile.collect { it.getName() }.join(' '),
+            'Built-By'       : System.properties['user.name'],
+            'Build-Timestamp': new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ").format(new Date()),
+            //'Build-Revision' : versioning.info.commit,
+            'Build-Revision' : project.version.toString(),
+            'Created-By'     : "Gradle ${gradle.gradleVersion}",
+            'Build-Jdk'      : "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
+            'Build-OS'       : "${System.properties['os.name']} ${System.properties['os.arch']} ${System.properties['os.version']}"
+        )
+    }
+}
+
+// https://discuss.gradle.org/t/how-to-set-the-module-path-project-jigsaw-for-eclipse-projects-via-gradle/26801/3
+eclipse {
+    classpath {
+        file {
+            whenMerged {
+                entries.findAll { isModule(it) }.each {
+                    it.entryAttributes['module'] = 'true'
+                }
+                entries.findAll { isSource(it) && isTestScope(it) }.each {
+                    it.entryAttributes['test'] = 'true'
+                }
+                entries.findAll { isLibrary(it) && isTestScope(it) }.each {
+                    it.entryAttributes['test'] = 'true'
+                }
+            }
+        }
+//        defaultOutputDir = file('build')
+//        downloadSources = true
+//        downloadJavadoc = true
+    }
+}
+
+boolean isLibrary(entry) { return entry.properties.kind.equals('lib') }
+boolean isTestScope(entry) { return entry.entryAttributes.get('gradle_used_by_scope').equals('test'); }
+boolean isModule(entry) { isLibrary(entry) && !isTestScope(entry); }
+boolean isSource(entry) { return entry.properties.kind.equals('src'); }
+
+// https://github.com/beryx/badass-jlink-plugin/issues/72
+// Execute: ./gradlew suggestMergedModuleInfo
+// Remove the lines contaning provides clauses and put the resulting mergedModule configuration in your jlink block.
+
+//def winver1 = version.toString().replaceAll('-dev.*', '.10113')
+def winver = version.toString().replaceAll('-dev.*', '') // jpackage allows up to 3 ver components
+println "win version: " + winver
+// TODO for dev, make like x.x.YMMDD
+
+
+jlink {
+    //options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages'] // --bind-services ?
+    //options = ['--compress', '2', '--no-header-files', '--no-man-pages', '--strip-native-commands']
+
+    // TODO no '--strip-native-commands' when enableCds() - it runs java from image
+    options = ['--compress', '2', '--no-header-files', '--no-man-pages']
+
+    launcher {
+        name = 'cookbook'   // TODO report issue with naming of 1st anf 2nd launchers in jpackage task
+    }
+
+    enableCds()
+
+    forceMerge('log4j-api') // https://github.com/beryx/badass-jlink-plugin/issues/14
+
+    jpackage {
+        installerType = project.ext.installerType
+
+        imageName = 'Cook Book'
+        installerName = 'Cook Book' // shown in wix wizard as app name
+
+        installerOptions = [
+            '--vendor', 'Sergey Selivanov',
+            '--verbose'
+        ]
+
+        if (org.gradle.internal.os.OperatingSystem.current().windows) {
+            appVersion = winver
+
+            icon = "${project.projectDir}/src/main/resources/images/amor.ico"
+
+            installerOptions += [
+                // saves generated wix files
+                // TODO customize wizard images?
+                '--temp', "${buildDir}/temp", // ? https://github.com/beryx/badass-runtime-plugin/issues/71
+
+                '--win-menu', '--win-shortcut', '--win-dir-chooser',
+                '--win-menu-group', 'Cook Book'
+            ]
+        }
+        if (org.gradle.internal.os.OperatingSystem.current().linux) {
+            // rpm: illegal char - in version
+            if(project.ext.installerType == 'rpm'){
+                appVersion = version.toString().replaceAll('-', '.')
+            }
+
+            icon = "${project.projectDir}/src/main/resources/images/amor.png"
+
+            installerOptions += [
+                // TODO use imageName
+                '--resource-dir', "build/jpackage/Cook Book/lib", // required for icon: https://github.com/beryx/badass-jlink-plugin/issues/148
+                '--linux-shortcut', '--linux-menu-group', 'Other'
+            ]
+
+//            installerOptions += ['--icon', 'src/main/resources/images/amor.png'] // not valid for deb
+
+            //if(project.ext.installerType == 'rpm'){
+                //installerOptions += ['--icon', 'src/main/resources/images/amor.png'] // not allowed
+            //}
+        }
+    }
+}
+
+
+def isNonStable = { String version ->
+    def stableKeyword = ['RELEASE', 'FINAL', 'GA'].any { it -> version.toUpperCase().contains(it) }
+    def regex = /^[0-9,.v-]+(-r)?$/
+    return !stableKeyword && !(version ==~ regex)
+}
+
+dependencyUpdates {
+    rejectVersionIf {
+        isNonStable(it.candidate.version)
+    }
+}
+
+test {
+    useJUnitPlatform()
+    // do not perform unit tests
+    exclude 'org/sergeys/cookbook/**'
+}
+
+spotbugs {
+    ignoreFailures = true
+    onlyAnalyze = [ 'org.sergeys.cookbook.logic.*', 'org.sergeys.cookbook.ui.*']
+//    excludeFilter = file("$projectDir/config/findbugs/excludeFilter.xml")
+}
+
+pmd {
+    //sourceSets = [sourceSets.pmd]
+    ruleSets = []
+    ruleSetFiles 'config/pmd/cookbook.xml'
+    ignoreFailures = true
+    toolVersion = '6.30.0'
+}
+
+checkstyle {
+    ignoreFailures = true
+    toolVersion = '8.39'
+}

@@ -22,9 +22,13 @@ repositories {
 dependencies {
 
     implementation 'commons-cli:commons-cli:1.4'
+    implementation group: 'com.mpatric', name: 'mp3agic', version: '0.9.1'
+    // https://mvnrepository.com/artifact/com.github.goxr3plus/jaudiotagger/2.2.7
+
+    implementation group: 'com.ibm.icu', name: 'icu4j', version: '68.2'
+
 
     implementation 'org.slf4j:slf4j-api:1.7.30'
-
     runtimeOnly 'org.apache.logging.log4j:log4j-slf4j-impl:2.14.0'
     runtimeOnly 'org.apache.logging.log4j:log4j-core:2.14.0'
     implementation 'org.apache.logging.log4j:log4j-api:2.14.0'
@@ -35,6 +39,11 @@ dependencies {
     spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.11.0'
     spotbugsPlugins 'com.mebigfatguy.sb-contrib:sb-contrib:7.4.7'
 }
+
+// tests has cyrillic and saved as unicode
+//compileJava.options.encoding = 'UTF-8'
+compileTestJava.options.encoding = 'UTF-8'
+
 
 // gradle run: > org.joor.ReflectException: java.lang.NoSuchFieldException: javaExecHandleBuilder
 modularity.disableEffectiveArgumentsAdjustment()
